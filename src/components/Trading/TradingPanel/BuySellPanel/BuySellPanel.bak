@@ -1,0 +1,97 @@
+import TradeInput from '../../../global/TradeInput/TradeInput'
+import _, { capitalize } from 'lodash'
+import TradeSelect from '../../../global/TradeSelect/TradeSelect'
+import { ChangeEvent, useContext } from 'react'
+import { TradeContext } from '../../../../context/tradeContext'
+import { TradeFormKeysI, TradeFormValuesI, TradeTokenT } from '../../../../types/global'
+
+// TODO: Undo into a simple form like PancakeSwap
+
+interface BuySellPanelIProps {
+  variant?: 'buy' | 'sell'
+  handleSubmit: () => void
+}
+
+const BuySellPanel = ({ variant = 'buy', handleSubmit }: BuySellPanelIProps) => {
+  const { loading, tradeState, updateTradeState } = useContext(TradeContext)
+  const isBuyVariant = variant === 'buy'
+  const fromInputAmount: TradeFormKeysI = `${isBuyVariant ? 'buy' : 'sell'}FromAmount`
+  const toInputAmout: TradeFormKeysI = `${isBuyVariant ? 'buy' : 'sell'}ToAmount`
+
+  const handleUpdate = (data: TradeFormValuesI) => {
+    updateTradeState({ ...data }, isBuyVariant)
+  }
+
+  const handleAmountChange = (e: ChangeEvent<HTMLInputElement>, storeField: TradeFormKeysI) =>
+    handleUpdate({ [storeField]: e.currentTarget.value })
+
+  const handleTokenChange = (token: TradeTokenT, storeField: TradeFormKeysI) =>
+    handleUpdate({ [storeField]: token })
+
+  return (
+    <div className="flex flex-col items-center">
+      <p className="text-white font-medium text-xl">{capitalize(variant)}</p>
+      {/* TODO: Add "Max." button to set set Max. balance */}
+      <div className="mb-1 w-full">
+        <TradeInput
+          label="From"
+          onChange={(e) => handleAmountChange(e, fromInputAmount)}
+          value={isBuyVariant ? tradeState?.buyFromAmount : tradeState?.sellFromAmount}
+          name={fromInputAmount}>
+          <TradeSelect
+            selected={isBuyVariant ? tradeState.fromToken : tradeState.toToken}
+            handleTokenChange={(tokenAddress) =>
+              handleTokenChange(tokenAddress, isBuyVariant ? 'fromToken' : 'toToken')
+            }
+          />
+        </TradeInput>
+      </div>
+      {/* TODO: Add buttons to set % */}
+      {/* <div>Percent % groupbuttonss</div> */}
+      <div className="mb-2 w-full">
+        <TradeInput
+          label="To"
+          onChange={(e) => handleAmountChange(e, toInputAmout)}
+          value={isBuyVariant ? tradeState?.buyToAmount : tradeState?.sellToAmount}
+          name={toInputAmout}
+          readOnly
+          type="text">
+          <TradeSelect
+            selected={isBuyVariant ? tradeState.toToken : tradeState.fromToken}
+            handleTokenChange={(tokenAddress) =>
+              handleTokenChange(tokenAddress, isBuyVariant ? 'toToken' : 'fromToken')
+            }
+          />
+        </TradeInput>
+      </div>
+      <div className="text-left text-white w-full mb-8 text-xs ml-1 flex justify-between items-center flex-wrap lg:flex-nowrap">
+        Via <span className="text-gray-500 mr-auto ml-1">Pancakeswap</span>
+        {tradeState.fromToken.price !== 0 && (
+          <span className="w-full lg:w-auto truncate">
+            {isBuyVariant
+              ? `1 ${tradeState.fromToken.symbol} = ${parseFloat(
+                  tradeState.fromToken.price_BNB
+                ).toFixed(8)} BNB`
+              : `1 ${tradeState.toToken.symbol} = ${parseFloat(
+                  tradeState.toToken.price_BNB
+                ).toFixed(8)} BNB`}
+          </span>
+        )}
+      </div>
+      {/* TODO: Change buttons to force to refresh amount to receive in secs */}
+      <button
+        onClick={handleSubmit}
+        disabled={
+          loading || (isBuyVariant ? tradeState.buyToAmount === 0 : tradeState.sellToAmount === 0)
+        }
+        type="submit"
+        className={`${
+          isBuyVariant ? 'bg-green-500 shadow-green-500/50' : 'bg-red-500 shadow-red-500/50'
+        } shadow-lg px-2 py-4 bg-green-500 text-2xl text-white w-full rounded-lg text-center cursor-pointer hover:bg-opacity-80 transform transition-colors disabled:bg-gray-600 disabled:cursor-default disabled:shadow-none`}>
+        {capitalize(variant)}
+      </button>
+    </div>
+  )
+}
+
+export default BuySellPanel

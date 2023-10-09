@@ -1,0 +1,90 @@
+import _ from 'lodash'
+import { useContext } from 'react'
+import Link from 'next/link'
+import { axios } from '../../../config/axios'
+import { TradeContext } from '../../../context/tradeContext'
+import { API_ROUTES } from '../../../routes'
+import { appStore } from '../../../store/appStore'
+import { ProviderT } from '../../../types/global'
+import { displayNotification } from '../../../utils'
+import Notification from '../../global/Notification/Notification'
+import BuySellPanel from './BuySellPanel/BuySellPanel'
+
+const TradingPanel = () => {
+  const {
+    loading,
+    tradeState: { buyFromAmount, buyToAmount, sellFromAmount, sellToAmount, fromToken, toToken },
+    tradeConfig: { selectedWallets, gasLimit, gweiCost, slippage },
+    beginTransacion
+  } = useContext(TradeContext)
+  const handleSubmit = async (submitMode: 'buy' | 'sell') => {
+    const isBuyMode = submitMode === 'buy'
+    const provider: ProviderT = appStore.appData.provider
+    const amountToBuy = isBuyMode ? buyFromAmount : sellFromAmount
+    const amountToReceive = isBuyMode ? buyToAmount : sellToAmount
+    let errorMessage = null
+
+    let walletPrivateKeysArray: Array<string> = []
+    selectedWallets?.forEach(({ privateKey }) => walletPrivateKeysArray.push(privateKey))
+
+    if (!selectedWallets?.length) errorMessage = 'Must select one wallet to trade'
+    if (1 < (selectedWallets?.length || 0)) errorMessage = 'Must select only one wallet to trade'
+    if (_.isUndefined(provider.httpsURL) || _.isUndefined(provider.wssURL))
+      errorMessage = 'Go to config page and select a valid provider'
+    if (!_.isNull(errorMessage)) {
+      displayNotification(<Notification text={errorMessage} type="warn" />, { type: 'warning' })
+      return
+    }
+    const tradeData = {
+      walletPrivateKeys: `${walletPrivateKeysArray.join(',')}`,
+      tokenToSpend: isBuyMode ? fromToken.contract : toToken.contract,
+      tokenToBuy: isBuyMode ? toToken.contract : fromToken.contract,
+      amount: amountToBuy?.toString(),
+      gasLimit: gasLimit?.toString(),
+      gweiCost: gweiCost?.toString(),
+      slippage: '0.003',
+      // slippage: (amountToReceive * ((100 - Number(slippage)) / 100)).toString(),
+      provider: appStore.appData.provider
+    }
+
+    const response = await beginTransacion(tradeData)
+    const { ok, error, data } = response
+    if (!ok) {
+      displayNotification(<Notification text={error} type="error" />, { type: 'error' })
+      return
+    }
+    displayNotification(
+      <Notification type="success">
+        <>
+          <p className="text-sm font-medium text-gray-200">Transaction sended!</p>
+          <Link href={data.bscscanURL}>
+            <a
+              rel="noopener noreferrer"
+              target="_blank"
+              className="underline underline-offset-1 text-jarvis-100">
+              View on bscscan
+            </a>
+          </Link>
+        </>
+      </Notification>,
+      {
+        type: 'success'
+      }
+    )
+  }
+
+  return (
+    <div className="relative p-3">
+      <div className="px-5 py-2 rounded-lg grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-1 bg-jarvis-card">
+        <div>
+          <BuySellPanel handleSubmit={() => handleSubmit('buy')} />
+        </div>
+        <div>
+          <BuySellPanel variant="sell" handleSubmit={() => handleSubmit('sell')} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default TradingPanel

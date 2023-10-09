@@ -1,0 +1,176 @@
+import React, { createContext, Dispatch, SetStateAction, useState } from 'react'
+import { TradeConfigI, TradeFormValuesI, WalletT } from '../types/global'
+import BSC_TOKENS from '../data/bscTokens.json'
+import { axios } from '../config/axios'
+import { API_ROUTES } from '../routes'
+import { cleanTokenSymbol, decryptData, encryptData } from '../utils'
+import { DEFAULT_GAS_LIMIT, DEFAULT_GWEI_PRICE } from '../constants'
+import { AxiosResponse } from 'axios'
+
+type TradeProviderState = {
+  loading: boolean
+  tradeState: TradeFormValuesI
+  tradeConfig: TradeConfigI
+  toggleShowChart: () => void
+  updateSelectedWallets: (wallet: WalletT) => void
+  onChangeTradeConfig: (value: string, field: 'gasLimit' | 'gweiCost' | 'slippage') => void
+  updateTradeState: (newData: TradeFormValuesI, buyMode: boolean) => void
+  beginTransacion: (tradeData: any) => any
+}
+
+let updateTradeStateTimeout: NodeJS.Timeout
+
+const TRADE_INITIAL_STATE: TradeProviderState = {
+  loading: false,
+  tradeState: {
+    buyFromAmount: 0,
+    buyToAmount: 0,
+    fromToken: { ...BSC_TOKENS[1], price: 0 },
+    toToken: { ...BSC_TOKENS[0], price: 0 },
+    sellFromAmount: 0,
+    sellToAmount: 0
+  },
+  tradeConfig: {
+    showChart: false,
+    gasLimit: DEFAULT_GAS_LIMIT,
+    gweiCost: DEFAULT_GWEI_PRICE,
+    slippage: 0
+  },
+  updateSelectedWallets: (wallet: WalletT) => {},
+  toggleShowChart: () => {},
+  onChangeTradeConfig: (gasLimit: string, field: string) => {},
+  updateTradeState: (newData: TradeFormValuesI, buyMode = true) => {},
+  beginTransacion: (tradeData: any) => {}
+}
+
+export const TradeContext = createContext<TradeProviderState>(TRADE_INITIAL_STATE)
+
+interface TradeProviderProps {
+  children: React.ReactNode
+}
+
+const TradeProvider = ({ children }: TradeProviderProps) => {
+  const [loading, setLoading] = useState<boolean>(TRADE_INITIAL_STATE.loading)
+  const [tradeState, setTradeState] = useState<TradeFormValuesI>(TRADE_INITIAL_STATE.tradeState)
+  const [tradeConfig, setTradeConfig] = useState<TradeConfigI>(TRADE_INITIAL_STATE.tradeConfig)
+
+  const getTokenPrice = async (tokenAddress: string) => {
+    return await axios.post(API_ROUTES.tokens.price.href, { tokenAddress })
+  }
+
+  const updateTokenPrices = async (newTradeState: TradeFormValuesI, buyMode: boolean) => {
+    const responses = await Promise.all([
+      getTokenPrice(newTradeState.fromToken.contract),
+      getTokenPrice(newTradeState.toToken.contract)
+    ])
+    const fromToken = responses[0].data.token
+    const toToken = responses[1].data.token
+    newTradeState = {
+      ...newTradeState,
+      fromToken: {
+        ...fromToken,
+        symbol: cleanTokenSymbol(fromToken.symbol)
+      },
+      toToken: {
+        ...toToken,
+        symbol: cleanTokenSymbol(toToken.symbol)
+      },
+      [`${buyMode ? 'buy' : 'sell'}ToAmount`]: new Intl.NumberFormat().format(
+        ((buyMode ? fromToken.price : toToken.price) *
+          Number(newTradeState[`${buyMode ? 'buy' : 'sell'}FromAmount`])) /
+          (buyMode ? toToken.price : fromToken.price)
+      )
+    }
+    setLoading(false)
+    setTradeState(newTradeState)
+  }
+
+  const updateTradeState = async (newData: TradeFormValuesI, buyMode = true) => {
+    let newTradeState = {
+      ...tradeState,
+      ...newData
+    }
+    if (updateTradeStateTimeout) clearTimeout(updateTradeStateTimeout)
+    updateTradeStateTimeout = setTimeout(() => {
+      setLoading(true)
+      updateTokenPrices(newTradeState, buyMode)
+    }, 300)
+    newTradeState = {
+      ...newTradeState,
+      fromToken: {
+        ...newTradeState.fromToken,
+        symbol: cleanTokenSymbol(newTradeState.fromToken.symbol)
+      },
+      toToken: {
+        ...newTradeState.toToken,
+        symbol: cleanTokenSymbol(newTradeState.toToken.symbol)
+      }
+    }
+    setTradeState(newTradeState)
+  }
+
+  const toggleShowChart = () =>
+    setTradeConfig({
+      ...tradeConfig,
+      showChart: !tradeConfig.showChart
+    })
+
+  const updateSelectedWallets = (incomingWallet: WalletT) => {
+    let actualSelectedWallets = tradeConfig.selectedWallets
+    let newSelectedWallets: Array<WalletT> = []
+    let alreadySelected: boolean = false
+
+    actualSelectedWallets?.forEach((wallet) => {
+      if (wallet.privateKey !== incomingWallet.privateKey) {
+        newSelectedWallets.push(wallet)
+      } else alreadySelected = true
+    })
+    if (!alreadySelected) newSelectedWallets.push(incomingWallet)
+
+    setTradeConfig({
+      ...tradeConfig,
+      selectedWallets: newSelectedWallets
+    })
+  }
+
+  const onChangeTradeConfig = (value: string, field: string) =>
+    setTradeConfig({
+      ...tradeConfig,
+      [field]: Number(value)
+    })
+
+  const beginTransacion = async (tradeData: any) => {
+    // TODO: Implement JWT for enc?
+    try {
+      setLoading(true)
+      const response = await axios.post(API_ROUTES.tokens.trade.href, {
+        data: encryptData(tradeData)
+      })
+      setLoading(false)
+      return response.data
+    } catch (error) {
+      const { message } = error as any
+      console.log('context catch', error)
+      setLoading(false)
+      return { ok: false, error: message }
+    }
+  }
+
+  return (
+    <TradeContext.Provider
+      value={{
+        loading,
+        tradeState,
+        tradeConfig,
+        toggleShowChart,
+        onChangeTradeConfig,
+        updateSelectedWallets,
+        updateTradeState,
+        beginTransacion
+      }}>
+      {children}
+    </TradeContext.Provider>
+  )
+}
+
+export default TradeProvider
